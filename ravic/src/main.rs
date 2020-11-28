@@ -1,5 +1,6 @@
 extern crate lexer;
 fn main() {
-    let num = 10;
-    println!("Hello, world! {} plus one is {}!", num, lexer::add_one(num));
+    let input = "hello";
+    let mut source = lexer::source::Source::new(input);
+    println!("First {} second {}!", source.getc(), source.getc());
 }
