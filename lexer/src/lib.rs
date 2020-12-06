@@ -66,6 +66,44 @@ struct StringObject<'a> {
     str: &'a [u8] /* The string data */
 }
 
+struct StringChunk {
+    chunk: [u8; 1024],
+}
+
+struct StringAllocator {
+    chunks: Vec<Box<StringChunk>>,
+    pos: usize
+}
+
+impl StringAllocator {
+    fn new() -> Self {
+        StringAllocator {
+            chunks : vec![Box::new(StringChunk{ chunk: [0; 1024] })],
+            pos: 0
+        }
+    }
+
+    fn alloc_string(&mut self, n: usize) -> &mut [u8] {
+        let cur = self.chunks.last_mut();
+        match cur {
+            None => {
+                self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024] }));
+            }
+            Some(p) => {
+                if self.pos + n > p.chunk.len() {
+                    self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024] }));
+                    self.pos = 0;
+                }
+            }
+        }
+        let i = self.chunks.len()-1;
+        let top = &mut self.chunks[i];
+        let pos = self.pos;
+        self.pos = self.pos + n;
+        &mut top.chunk[pos .. n]
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
