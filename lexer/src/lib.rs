@@ -107,8 +107,22 @@ impl StringAllocator {
 
 #[cfg(test)]
 mod tests {
+    use crate::StringAllocator;
+
     #[test]
     fn it_works() {
         assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn test_string_alloc() {
+        let mut alloc = StringAllocator::new();
+        let slice1 = alloc.alloc_string(10);
+        let slice2 = alloc.alloc_string(10);
+        assert_eq!(1, alloc.chunks.len());
+        assert_eq!(20, alloc.pos);
+        let slice3 = alloc.alloc_string(1005);
+        assert_eq!(2, alloc.chunks.len());
+        assert_eq!(1005, alloc.pos);
     }
 }
