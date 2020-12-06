@@ -66,41 +66,63 @@ struct StringObject<'a> {
     str: &'a [u8] /* The string data */
 }
 
+const CHUNK_SIZE: usize = 1024;
 struct StringChunk {
-    chunk: [u8; 1024],
+    chunk: [u8; CHUNK_SIZE],
+    pos: usize
 }
 
 struct StringAllocator {
     chunks: Vec<Box<StringChunk>>,
-    pos: usize
 }
 
 impl StringAllocator {
     fn new() -> Self {
         StringAllocator {
-            chunks : vec![Box::new(StringChunk{ chunk: [0; 1024] })],
-            pos: 0
+            chunks : vec![Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 })],
         }
     }
 
-    fn alloc_string(&mut self, n: usize) -> &mut [u8] {
-        let cur = self.chunks.last_mut();
-        match cur {
-            None => {
-                self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024] }));
-            }
-            Some(p) => {
-                if self.pos + n > p.chunk.len() {
-                    self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024] }));
-                    self.pos = 0;
-                }
+    // fn alloc_string(&mut self, n: usize) -> Option<&mut [u8]> {
+    //     let mut cur : Option<&mut Box<StringChunk>> = None;
+    //     for i in 0..self.chunks.len() {
+    //         let c = &mut self.chunks[i];
+    //         if c.pos + n < 1024 {
+    //             cur = Some(c);
+    //         }
+    //     }
+    //     if cur.is_none() {
+    //         self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024], pos: 0 }));
+    //         cur = self.chunks.last_mut();
+    //     }
+    //     match cur {
+    //         None => None,
+    //         Some(stringchunk) => {
+    //             let pos = stringchunk.pos;
+    //             stringchunk.pos = stringchunk.pos + n;
+    //             Some(&mut stringchunk.chunk[pos .. n])
+    //         }
+    //     }
+    // }
+
+    fn alloc_string(&mut self, n: usize) -> Option<&mut [u8]> {
+        if n > CHUNK_SIZE {
+            return None;
+        }
+        let mut j: usize = self.chunks.len();
+        for i in 0..self.chunks.len() {
+            let c = &self.chunks[i];
+            if c.pos + n <= CHUNK_SIZE {
+                j = i;
             }
         }
-        let i = self.chunks.len()-1;
-        let top = &mut self.chunks[i];
-        let pos = self.pos;
-        self.pos = self.pos + n;
-        &mut top.chunk[pos .. n]
+        if j == self.chunks.len() {
+            self.chunks.push(Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 }));
+        }
+        let cur = &mut self.chunks[j];
+        let pos = cur.pos;
+        cur.pos = cur.pos + n;
+        Some(&mut cur.chunk[pos .. n])
     }
 }
 
@@ -120,9 +142,13 @@ mod tests {
         let slice1 = alloc.alloc_string(10);
         let slice2 = alloc.alloc_string(10);
         assert_eq!(1, alloc.chunks.len());
-        assert_eq!(20, alloc.pos);
+        assert_eq!(20, alloc.chunks[0].pos);
         let slice3 = alloc.alloc_string(1005);
         assert_eq!(2, alloc.chunks.len());
-        assert_eq!(1005, alloc.pos);
+        assert_eq!(1005, alloc.chunks[1].pos);
+        let slice4 = alloc.alloc_string(20);
+        assert_eq!(2, alloc.chunks.len());
+        assert_eq!(40, alloc.chunks[0].pos);
+        assert_eq!(1005, alloc.chunks[1].pos);
     }
 }
