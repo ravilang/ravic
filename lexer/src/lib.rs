@@ -86,13 +86,14 @@ impl StringAllocator {
     // fn alloc_string(&mut self, n: usize) -> Option<&mut [u8]> {
     //     let mut cur : Option<&mut Box<StringChunk>> = None;
     //     for i in 0..self.chunks.len() {
-    //         let c = &mut self.chunks[i];
-    //         if c.pos + n < 1024 {
-    //             cur = Some(c);
+    //         let c = &self.chunks[i];
+    //         if c.pos + n <= CHUNK_SIZE {
+    //             cur = Some(&mut self.chunks[i]);
+    //             break;
     //         }
     //     }
     //     if cur.is_none() {
-    //         self.chunks.push(Box::new(StringChunk{ chunk: [0; 1024], pos: 0 }));
+    //         self.chunks.push(Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 }));
     //         cur = self.chunks.last_mut();
     //     }
     //     match cur {
@@ -100,7 +101,7 @@ impl StringAllocator {
     //         Some(stringchunk) => {
     //             let pos = stringchunk.pos;
     //             stringchunk.pos = stringchunk.pos + n;
-    //             Some(&mut stringchunk.chunk[pos .. n])
+    //             Some(&mut stringchunk.chunk[pos .. stringchunk.pos])
     //         }
     //     }
     // }
@@ -122,7 +123,7 @@ impl StringAllocator {
         let cur = &mut self.chunks[j];
         let pos = cur.pos;
         cur.pos = cur.pos + n;
-        Some(&mut cur.chunk[pos .. n])
+        Some(&mut cur.chunk[pos .. cur.pos])
     }
 }
 
@@ -140,13 +141,17 @@ mod tests {
     fn test_string_alloc() {
         let mut alloc = StringAllocator::new();
         let slice1 = alloc.alloc_string(10);
+        assert_eq!(10, slice1.unwrap().len());
         let slice2 = alloc.alloc_string(10);
+        assert_eq!(10, slice2.unwrap().len());
         assert_eq!(1, alloc.chunks.len());
         assert_eq!(20, alloc.chunks[0].pos);
         let slice3 = alloc.alloc_string(1005);
+        assert_eq!(1005, slice3.unwrap().len());
         assert_eq!(2, alloc.chunks.len());
         assert_eq!(1005, alloc.chunks[1].pos);
         let slice4 = alloc.alloc_string(20);
+        assert_eq!(20, slice4.unwrap().len());
         assert_eq!(2, alloc.chunks.len());
         assert_eq!(40, alloc.chunks[0].pos);
         assert_eq!(1005, alloc.chunks[1].pos);
