@@ -1,4 +1,8 @@
+pub mod config;
 pub mod source;
+
+use crate::config::*;
+use crate::source::Source;
 
 const TOK_OFS: i32 = 256;
 
@@ -51,7 +55,6 @@ const TOK_STRING: i32 = 301;
 const FIRST_RESERVED: i32 = TOK_OFS + 1;
 const LAST_RESERVED: i32 = TOK_while - TOK_OFS;
 
-
 /*
  * Lua strings can have embedded 0 bytes therefore we
  * need a string type that has a length associated with it.
@@ -59,17 +62,16 @@ const LAST_RESERVED: i32 = TOK_while - TOK_OFS;
  * The compiler stores a single copy of each string so that strings
  * can be compared by equality.
  */
-struct StringObject<'a> {
-	len: i32,	  /* length of the string */
-	reserved: i32, /* if is this a keyword then token id else -1 */
-    hash: u32,	  /* hash value of the string */
-    str: &'a [u8] /* The string data */
+pub struct StringObject<'a> {
+    reserved: i32, /* if is this a keyword then token id else -1 */
+    hash: u32,     /* hash value of the string */
+    str: &'a [u8], /* The string data */
 }
 
 const CHUNK_SIZE: usize = 1024;
 struct StringChunk {
     chunk: [u8; CHUNK_SIZE],
-    pos: usize
+    pos: usize,
 }
 
 struct StringAllocator {
@@ -79,7 +81,10 @@ struct StringAllocator {
 impl StringAllocator {
     fn new() -> Self {
         StringAllocator {
-            chunks : vec![Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 })],
+            chunks: vec![Box::new(StringChunk {
+                chunk: [0; CHUNK_SIZE],
+                pos: 0,
+            })],
         }
     }
 
@@ -118,18 +123,63 @@ impl StringAllocator {
             }
         }
         if j == self.chunks.len() {
-            self.chunks.push(Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 }));
+            self.chunks.push(Box::new(StringChunk {
+                chunk: [0; CHUNK_SIZE],
+                pos: 0,
+            }));
         }
         let cur = &mut self.chunks[j];
         let pos = cur.pos;
         cur.pos = cur.pos + n;
-        Some(&mut cur.chunk[pos .. cur.pos])
+        Some(&mut cur.chunk[pos..cur.pos])
     }
 }
 
+pub enum SemInfo<'a> {
+    Integer { i: lua_Integer },
+    Number { r: lua_Number },
+    String { str: &'a StringObject<'a> },
+}
+
+pub struct Token<'a> {
+    token: i32, /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
+                are characters */
+    seminfo: Option<Box<SemInfo<'a>>>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
+                                       token is > TOK_EOS */
+}
+
+pub struct Lexer<'a> {
+    current: i32,
+    linenumber: i32,
+    lastline: i32,
+    t: Token<'a>,
+    lookahead: Token<'a>,
+    source: Source<'a>,
+}
+
+impl<'a> Lexer<'a> {
+    fn new(mut source: Source<'a>) -> Self {
+        Lexer {
+            current: source.getc(),
+            linenumber: 0,
+            lastline: 0,
+            source: source,
+            lookahead: Token {
+                token: TOK_EOS,
+                seminfo: None,
+            },
+            t: Token {
+                token: 0,
+                seminfo: None,
+            },
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use crate::Lexer;
+    use crate::Source;
     use crate::StringAllocator;
 
     #[test]
@@ -155,5 +205,11 @@ mod tests {
         assert_eq!(2, alloc.chunks.len());
         assert_eq!(40, alloc.chunks[0].pos);
         assert_eq!(1005, alloc.chunks[1].pos);
+    }
+
+    #[test]
+    fn test_lexer() {
+        let mut source = Source::new("return 1");
+        let mut lexer = Lexer::new(source);
     }
 }
