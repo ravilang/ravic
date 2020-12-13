@@ -3,6 +3,8 @@ pub mod source;
 
 use crate::config::*;
 use crate::source::Source;
+use std::fmt;
+use std::string;
 
 const TOK_OFS: i32 = 256;
 
@@ -66,6 +68,13 @@ pub struct StringObject<'a> {
     reserved: i32, /* if is this a keyword then token id else -1 */
     hash: u32,     /* hash value of the string */
     str: &'a [u8], /* The string data */
+}
+
+impl fmt::Debug for StringObject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = string::String::from_utf8(self.str.to_vec());
+        write!(f, "'{:?}'", str)
+    }
 }
 
 const CHUNK_SIZE: usize = 1024;
@@ -135,16 +144,19 @@ impl StringAllocator {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum SemInfo<'a> {
     Integer { i: lua_Integer },
     Number { r: lua_Number },
     String { str: &'a StringObject<'a> },
+    None {}
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Token<'a> {
     token: i32, /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
                 are characters */
-    seminfo: Option<Box<SemInfo<'a>>>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
+    seminfo: SemInfo<'a>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
                                        token is > TOK_EOS */
 }
 
@@ -155,6 +167,7 @@ pub struct Lexer<'a> {
     t: Token<'a>,
     lookahead: Token<'a>,
     source: Source<'a>,
+    buffer: Vec<u8>,
 }
 
 impl<'a> Lexer<'a> {
@@ -166,14 +179,37 @@ impl<'a> Lexer<'a> {
             source: source,
             lookahead: Token {
                 token: TOK_EOS,
-                seminfo: None,
+                seminfo: SemInfo::None {},
             },
             t: Token {
                 token: 0,
-                seminfo: None,
+                seminfo: SemInfo::None {},
             },
+            buffer: vec![]
         }
     }
+
+    fn llex(&mut self, lookingahead: bool) -> i32 {
+        let seminfo = if lookingahead {
+            &mut self.lookahead.seminfo
+        }
+        else {
+            &mut self.t.seminfo
+        };
+        0
+    }
+
+    fn next(&mut self) {
+        self.lastline = self.linenumber;
+        if self.lookahead.token == TOK_EOS { /* is there a look-ahead token? */
+            self.t = self.lookahead; /* use this one */
+            self.lookahead.token = TOK_EOS; /* and discharge it */
+        }
+        else {
+            self.t.token = self.llex(false);
+        }
+    }
+
 }
 
 #[cfg(test)]
