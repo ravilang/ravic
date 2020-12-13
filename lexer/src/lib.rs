@@ -4,6 +4,9 @@ pub mod source;
 use crate::config::*;
 use crate::source::Source;
 use crate::source::EOZ;
+use core::hash::Hash;
+use core::hash::Hasher;
+use std::collections::HashSet;
 use std::fmt;
 use std::string;
 
@@ -59,30 +62,45 @@ const FIRST_RESERVED: i32 = TOK_OFS + 1;
 const LAST_RESERVED: i32 = TOK_while - TOK_OFS;
 
 const CHAR_RET: i32 = '\r' as i32;
-const CHAR_NL: i32  = '\n' as i32;
+const CHAR_NL: i32 = '\n' as i32;
 const CHAR_SPACE: i32 = ' ' as i32;
 const CHAR_FF: i32 = 12;
 const CHAR_HTAB: i32 = '\t' as i32;
 const CHAR_VTAB: i32 = 11;
 
 const luai_ctype_: [i32; 257] = [
-    0x00,											    /* EOZ */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,						    /* 0. */
-    0x00, 0x08, 0x08, 0x08, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 1. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, /* 2. */
-    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, /* 3. */
-    0x16, 0x16, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x05, /* 4. */
-    0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, /* 5. */
-    0x05, 0x05, 0x05, 0x04, 0x04, 0x04, 0x04, 0x05, 0x04, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x05, /* 6. */
-    0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, /* 7. */
-    0x05, 0x05, 0x05, 0x04, 0x04, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 8. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 9. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* a. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* b. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* c. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* d. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* e. */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* f. */
+    0x00, /* EOZ */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 0. */
+    0x00, 0x08, 0x08, 0x08, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* 1. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
+    0x04, /* 2. */
+    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16,
+    0x16, /* 3. */
+    0x16, 0x16, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15,
+    0x05, /* 4. */
+    0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05,
+    0x05, /* 5. */
+    0x05, 0x05, 0x05, 0x04, 0x04, 0x04, 0x04, 0x05, 0x04, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15,
+    0x05, /* 6. */
+    0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05,
+    0x05, /* 7. */
+    0x05, 0x05, 0x05, 0x04, 0x04, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* 8. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* 9. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* a. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* b. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* c. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* d. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* e. */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, /* f. */
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
@@ -92,15 +110,29 @@ const PRINTBIT: i32 = 2;
 const SPACEBIT: i32 = 3;
 const XDIGITBIT: i32 = 4;
 
-fn MASK(B: i32) -> i32 { 1 << B }
+fn MASK(B: i32) -> i32 {
+    1 << B
+}
 
-fn testprop(c: i32, p: i32) -> i32 { luai_ctype_[c as usize + 1] & p }
+fn testprop(c: i32, p: i32) -> i32 {
+    luai_ctype_[c as usize + 1] & p
+}
 
-fn lislalpha(c: i32) -> bool { testprop(c, MASK(ALPHABIT)) != 0 }
-fn lislalnum(c: i32) -> bool { testprop(c, MASK(ALPHABIT) | MASK(DIGITBIT)) != 0 }
-fn lisdigit(c: i32) -> bool { testprop(c, MASK(DIGITBIT)) != 0 }
-fn lisspace(c: i32) -> bool { testprop(c, MASK(SPACEBIT)) != 0 }
-fn lisxdigit(c: i32) -> bool { testprop(c, MASK(XDIGITBIT)) != 0 }
+fn lislalpha(c: i32) -> bool {
+    testprop(c, MASK(ALPHABIT)) != 0
+}
+fn lislalnum(c: i32) -> bool {
+    testprop(c, MASK(ALPHABIT) | MASK(DIGITBIT)) != 0
+}
+fn lisdigit(c: i32) -> bool {
+    testprop(c, MASK(DIGITBIT)) != 0
+}
+fn lisspace(c: i32) -> bool {
+    testprop(c, MASK(SPACEBIT)) != 0
+}
+fn lisxdigit(c: i32) -> bool {
+    testprop(c, MASK(XDIGITBIT)) != 0
+}
 
 /*
  * Lua strings can have embedded 0 bytes therefore we
@@ -111,7 +143,6 @@ fn lisxdigit(c: i32) -> bool { testprop(c, MASK(XDIGITBIT)) != 0 }
  */
 pub struct StringObject<'a> {
     reserved: i32, /* if is this a keyword then token id else -1 */
-    hash: u32,     /* hash value of the string */
     str: &'a [u8], /* The string data */
 }
 
@@ -119,6 +150,27 @@ impl fmt::Debug for StringObject<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let str = string::String::from_utf8(self.str.to_vec());
         write!(f, "'{:?}'", str)
+    }
+}
+
+impl PartialEq for StringObject<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.str.len() != other.str.len() {
+            return false;
+        }
+        for i in 0..self.str.len() {
+            if self.str[i] != other.str[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+impl Eq for StringObject<'_> {}
+
+impl Hash for StringObject<'_> {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.str.hash(hasher)
     }
 }
 
@@ -165,7 +217,7 @@ impl StringAllocator {
     //     }
     // }
 
-    fn alloc_string(&mut self, n: usize) -> Option<&mut [u8]> {
+    fn alloc_string<'a>(&'a mut self, n: usize) -> Option<&'a mut [u8]> {
         if n > CHUNK_SIZE {
             return None;
         }
@@ -189,12 +241,57 @@ impl StringAllocator {
     }
 }
 
+struct StringCache<'a> {
+    map: HashSet<Box<StringObject<'a>>>,
+    allocator: StringAllocator,
+}
+
+impl<'a> StringCache<'a> {
+    fn new() -> Self {
+        StringCache {
+            map: HashSet::new(),
+            allocator: StringAllocator::new(),
+        }
+    }
+
+    fn get(&'a mut self, buf: &'a std::vec::Vec<u8>) -> Option<&'a StringObject> {
+        let slice = &buf[0..buf.len()];
+        let strObj = StringObject {
+            reserved: -1,
+            str: slice,
+        };
+        // {
+        //     let existing = self.map.get(&strObj);
+        //     match existing {
+        //         Some(e) => {
+        //             return Some(e);
+        //         }
+        //         None => {}
+        //     }
+        // }
+        // {
+        //     let s = self.allocator.alloc_string(slice.len());
+        //     match s {
+        //         Some(ss) => {
+        //             let obj = Box::new(StringObject {
+        //                 reserved: -1,
+        //                 str: ss,
+        //             });
+        //             self.map.insert(obj);
+        //         }
+        //         None => {}
+        //     }
+        // }
+        None
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum SemInfo<'a> {
     Integer { i: lua_Integer },
     Number { r: lua_Number },
     String { str: &'a StringObject<'a> },
-    None {}
+    None {},
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -202,7 +299,7 @@ pub struct Token<'a> {
     token: i32, /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
                 are characters */
     seminfo: SemInfo<'a>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
-                                       token is > TOK_EOS */
+                          token is > TOK_EOS */
 }
 
 pub struct Lexer<'a> {
@@ -213,6 +310,7 @@ pub struct Lexer<'a> {
     lookahead: Token<'a>,
     source: Source<'a>,
     buff: Vec<u8>,
+    strCache: StringCache<'a>,
 }
 
 impl<'a> Lexer<'a> {
@@ -230,49 +328,46 @@ impl<'a> Lexer<'a> {
                 token: 0,
                 seminfo: SemInfo::None {},
             },
-            buff: vec![]
+            buff: vec![],
+            strCache: StringCache::new(),
         }
     }
-    
     fn next_ch(&mut self) {
         self.current = self.source.getc();
     }
 
-    fn currIsNewline(&self) -> bool
-    { 
+    fn currIsNewline(&self) -> bool {
         self.current == CHAR_NL || self.current == CHAR_RET
     }
 
-    fn inclinenumber(&mut self)
-    {
-    	let old = self.current;
-	    self.next_ch(); /* skip '\n' or '\r' */
-	    if self.currIsNewline() && self.current != old {
+    fn inclinenumber(&mut self) {
+        let old = self.current;
+        self.next_ch(); /* skip '\n' or '\r' */
+        if self.currIsNewline() && self.current != old {
             self.next_ch(); /* skip '\n\r' or '\r\n' */
         }
         self.linenumber += 1;
-	    // if (++ls->linenumber >= INT_MAX)
-		// lexerror(ls, "chunk has too many lines", 0);
+        // if (++ls->linenumber >= INT_MAX)
+        // lexerror(ls, "chunk has too many lines", 0);
     }
 
     fn llex(&mut self, lookingahead: bool) -> i32 {
         let seminfo = if lookingahead {
             &mut self.lookahead.seminfo
-        }
-        else {
+        } else {
             &mut self.t.seminfo
         };
         self.buff.clear();
         loop {
             match self.current {
-
                 CHAR_RET | CHAR_NL => {
                     self.inclinenumber();
                 }
 
-                CHAR_SPACE | CHAR_FF | CHAR_HTAB | CHAR_VTAB => { /* spaces */
+                CHAR_SPACE | CHAR_FF | CHAR_HTAB | CHAR_VTAB => {
+                    /* spaces */
                     self.next_ch();
-                }                
+                }
 
                 EOZ => {
                     break;
@@ -280,15 +375,12 @@ impl<'a> Lexer<'a> {
 
                 _ => {
                     if lislalnum(self.current) {
-
-                    }
-                    else {
+                    } else {
                         let c = self.current;
                         self.next_ch();
                         return c;
                     }
                 }
-
             }
         }
         0
@@ -296,15 +388,14 @@ impl<'a> Lexer<'a> {
 
     fn next(&mut self) {
         self.lastline = self.linenumber;
-        if self.lookahead.token == TOK_EOS { /* is there a look-ahead token? */
+        if self.lookahead.token == TOK_EOS {
+            /* is there a look-ahead token? */
             self.t = self.lookahead; /* use this one */
             self.lookahead.token = TOK_EOS; /* and discharge it */
-        }
-        else {
+        } else {
             self.t.token = self.llex(false);
         }
     }
-
 }
 
 #[cfg(test)]
@@ -342,6 +433,5 @@ mod tests {
     fn test_lexer() {
         let mut source = Source::new("return 1");
         let mut lexer = Lexer::new(source);
-        
     }
 }
