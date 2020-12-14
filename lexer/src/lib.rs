@@ -256,33 +256,34 @@ impl<'a> StringCache<'a> {
 
     fn get(&'a mut self, buf: &'a std::vec::Vec<u8>) -> Option<&'a StringObject> {
         let slice = &buf[0..buf.len()];
-        let strObj = StringObject {
+        let str_obj = StringObject {
             reserved: -1,
             str: slice,
         };
-        // {
-        //     let existing = self.map.get(&strObj);
-        //     match existing {
-        //         Some(e) => {
-        //             return Some(e);
-        //         }
-        //         None => {}
-        //     }
-        // }
-        // {
-        //     let s = self.allocator.alloc_string(slice.len());
-        //     match s {
-        //         Some(ss) => {
-        //             let obj = Box::new(StringObject {
-        //                 reserved: -1,
-        //                 str: ss,
-        //             });
-        //             self.map.insert(obj);
-        //         }
-        //         None => {}
-        //     }
-        // }
-        None
+        let tab = &mut self.map;
+        if !tab.contains(&str_obj) {
+            let s = self.allocator.alloc_string(slice.len());
+            match s {
+                Some(ss) => {
+                    for i in 0..ss.len() {
+                        ss[i] = slice[i];
+                    }
+                    let obj = Box::new(StringObject {
+                        reserved: -1,
+                        str: ss,
+                    });
+                    tab.insert(obj);
+                }
+                None => {}
+            }
+        }
+        {
+            let existing = tab.get(&str_obj);
+            match existing {
+                Some(e) => Some(e),
+                None => None,
+            }
+        }
     }
 }
 
