@@ -6,8 +6,10 @@ use crate::source::Source;
 use crate::source::EOZ;
 use core::hash::Hash;
 use core::hash::Hasher;
+use core::ptr;
 use std::collections::HashSet;
 use std::fmt;
+use std::mem;
 use std::string;
 
 const TOK_OFS: i32 = 256;
@@ -245,6 +247,56 @@ impl StringAllocator {
         let pos = cur.pos;
         cur.pos = cur.pos + n;
         Some(&mut cur.chunk[pos..cur.pos])
+    }
+}
+
+struct StringObjectAllocator {
+    chunks: Vec<Box<StringChunk>>,
+}
+
+impl StringObjectAllocator {
+    fn new() -> Self {
+        StringObjectAllocator {
+            chunks: vec![Box::new(StringChunk {
+                chunk: [0; CHUNK_SIZE],
+                pos: 0,
+            })],
+        }
+    }
+
+    fn allocate<'a>(&'a mut self, data: &'a mut [u8]) -> Option<&'a StringObject> {
+        let mut n = mem::size_of::<StringObject>();
+        let alignment = mem::align_of::<StringObject>();
+        n = (n + alignment - 1) & !(alignment - 1);
+
+        let mut j: usize = self.chunks.len();
+        for i in 0..self.chunks.len() {
+            let c = &self.chunks[i];
+            if c.pos + n <= CHUNK_SIZE {
+                j = i;
+            }
+        }
+        if j == self.chunks.len() {
+            self.chunks.push(Box::new(StringChunk {
+                chunk: [0; CHUNK_SIZE],
+                pos: 0,
+            }));
+        }
+        let cur = &mut self.chunks[j];
+        let pos = cur.pos;
+        cur.pos = cur.pos + n;
+        let buf = &mut cur.chunk[pos..cur.pos];
+        let objp: *mut StringObject = buf.as_mut_ptr() as *mut StringObject;
+        unsafe {
+            ptr::write(
+                objp,
+                StringObject {
+                    reserved: -1,
+                    str: data,
+                },
+            );
+            Some(&*objp)
+        }
     }
 }
 
