@@ -153,6 +153,13 @@ impl fmt::Debug for StringObject<'_> {
     }
 }
 
+impl fmt::Display for StringObject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = string::String::from_utf8(self.str.to_vec());
+        write!(f, "'{:?}'", str)
+    }
+}
+
 impl PartialEq for StringObject<'_> {
     fn eq(&self, other: &Self) -> bool {
         if self.str.len() != other.str.len() {
@@ -272,6 +279,7 @@ impl<'a> StringCache<'a> {
                         reserved: -1,
                         str: ss,
                     });
+                    println!("allocated");
                     tab.insert(obj);
                 }
                 None => {}
@@ -404,11 +412,7 @@ mod tests {
     use crate::Lexer;
     use crate::Source;
     use crate::StringAllocator;
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+    use crate::StringCache;
 
     #[test]
     fn test_string_alloc() {
@@ -428,6 +432,16 @@ mod tests {
         assert_eq!(2, alloc.chunks.len());
         assert_eq!(40, alloc.chunks[0].pos);
         assert_eq!(1005, alloc.chunks[1].pos);
+    }
+
+    #[test]
+    fn test_string_cache() {
+        let mut cache = StringCache::new();
+        let buf1 = String::from("hello").into_bytes();
+        let result = cache.get(&buf1);
+        assert_eq!(buf1, result.unwrap().str);
+        // let result2 = cache.get(&buf1);
+        // assert_eq!(result.unwrap(), result2.unwrap());
     }
 
     #[test]
