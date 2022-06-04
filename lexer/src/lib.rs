@@ -4,6 +4,7 @@ pub mod source;
 use crate::config::*;
 use crate::source::Source;
 use crate::source::EOZ;
+use crate::SemInfo::StringLit;
 use core::hash::Hash;
 use core::hash::Hasher;
 use core::ptr;
@@ -147,9 +148,9 @@ fn lisxdigit(c: i32) -> bool {
 
 #[derive(Debug, Clone)]
 pub enum SemInfo {
-    Integer { i: lua_Integer },
-    Number { r: lua_Number },
-    String { s: Vec<u8> },
+    IntegerLit { i: lua_Integer },
+    NumberLit { r: lua_Number },
+    StringLit { s: Vec<i32> },
 }
 
 #[derive(Debug, Clone)]
@@ -234,7 +235,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_long_string(&mut self, seminfo: Option<&mut SemInfo>, sep: i32) {
+    fn read_long_string(&mut self, save_seminfo: bool, looking_ahead: bool, sep: i32) {
         let line = self.linenumber;
         self.save_and_next_ch(); /* skip 2nd '[' */
         if self.curr_is_new_line() {
@@ -257,16 +258,34 @@ impl<'a> Lexer<'a> {
                 CHAR_RET | CHAR_NL => {
                     self.buff.push(CHAR_NL);
                     self.inc_line_number();
-                    if seminfo.is_none() {
+                    if !save_seminfo {
                         self.buff.clear(); /* avoid wasting space */
                     }
                 }
                 _ => {
-                    if !seminfo.is_none() {
+                    if !save_seminfo {
                         self.save_and_next_ch();
                     } else {
                         self.next_ch();
                     }
+                }
+            }
+        }
+        if save_seminfo {
+            let sep = sep as usize;
+            let start = 2 * sep;
+            let end = self.buff.len() - 2 * (2 + sep);
+            let rang = start..end;
+            let cl = self.buff[rang].to_vec();
+            if looking_ahead {
+                self.lookahead = Token {
+                    token: TOK_STRING,
+                    seminfo: Some(StringLit { s: cl }),
+                }
+            } else {
+                self.t = Token {
+                    token: TOK_STRING,
+                    seminfo: Some(StringLit { s: cl }),
                 }
             }
         }
@@ -275,9 +294,9 @@ impl<'a> Lexer<'a> {
     // Advance the lexer to next token
     fn llex(&mut self, looking_ahead: bool) -> i32 {
         let seminfo = if looking_ahead {
-            &mut self.lookahead.seminfo
+            self.lookahead.seminfo.as_mut()
         } else {
-            &mut self.t.seminfo
+            self.t.seminfo.as_mut()
         };
         self.buff.clear();
         loop {
@@ -305,7 +324,7 @@ impl<'a> Lexer<'a> {
                         let sep = self.skip_sep();
                         self.buff.clear(); /* 'skip_sep' may dirty the buffer */
                         if (sep >= 0) {
-                            self.read_long_string(None, sep); /* skip long comment */
+                            self.read_long_string(false, looking_ahead, sep); /* skip long comment */
                             self.buff.clear(); /* previous call may dirty the buff. */
                             continue;
                         }
@@ -314,6 +333,26 @@ impl<'a> Lexer<'a> {
                     while !self.curr_is_new_line() && self.current != EOZ {
                         self.next_ch(); /* skip until end of line (or end of file) */
                     }
+                }
+
+                CHAR_SPACE | CHAR_FF | CHAR_HTAB | CHAR_VTAB => {
+                    /* spaces */
+                    self.next_ch();
+                }
+
+                CHAR_LBRACKET => {
+                    /* long string or simply '[' */
+                    let sep = self.skip_sep();
+                    if sep >= 0 {
+                        self.read_long_string(true, looking_ahead, sep);
+                        break TOK_STRING;
+                    } else if sep != -1
+                    /* '[=...' missing second bracket */
+                    {
+                        //lexerror(ls, "invalid long string delimiter", TOK_STRING);
+                        break TOK_EOS;
+                    }
+                    break CHAR_LBRACKET;
                 }
 
                 _ => {
@@ -344,7 +383,7 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE};
+    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE, TOK_STRING};
     use crate::{Source, CHAR_COMMA, CHAR_LPAREN, CHAR_RPAREN, TOK_EOS};
     #[test]
     fn test_lexer() {
@@ -359,6 +398,7 @@ multi line
  string
 ]==]
  ( )
+  [[ a string ]]
         ";
 
         let mut source = Source::new(source_string);
@@ -375,6 +415,8 @@ multi line
         assert_eq!(CHAR_LPAREN, lexer.t.token);
         lexer.next_token();
         assert_eq!(CHAR_RPAREN, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_STRING, lexer.t.token);
         lexer.next_token();
         assert_eq!(TOK_EOS, lexer.t.token);
     }
