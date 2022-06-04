@@ -15,29 +15,29 @@ use std::string;
 
 const TOK_OFS: i32 = 256;
 
-const TOK_and: i32 = 257;
-const TOK_break: i32 = 258;
-const TOK_do: i32 = 259;
-const TOK_else: i32 = 260;
-const TOK_elseif: i32 = 261;
-const TOK_end: i32 = 262;
-const TOK_false: i32 = 263;
-const TOK_for: i32 = 264;
-const TOK_function: i32 = 265;
-const TOK_goto: i32 = 266;
-const TOK_if: i32 = 267;
-const TOK_in: i32 = 268;
-const TOK_local: i32 = 269;
-const TOK_defer: i32 = 270;
-const TOK_nil: i32 = 271;
-const TOK_not: i32 = 272;
-const TOK_or: i32 = 273;
-const TOK_repeat: i32 = 274;
-const TOK_return: i32 = 275;
-const TOK_then: i32 = 276;
-const TOK_true: i32 = 277;
-const TOK_until: i32 = 278;
-const TOK_while: i32 = 279;
+const TOK_AND: i32 = 257;
+const TOK_BREAK: i32 = 258;
+const TOK_DO: i32 = 259;
+const TOK_ELSE: i32 = 260;
+const TOK_ELSEIF: i32 = 261;
+const TOK_END: i32 = 262;
+const TOK_FALSE: i32 = 263;
+const TOK_FOR: i32 = 264;
+const TOK_FUNCTION: i32 = 265;
+const TOK_GOTO: i32 = 266;
+const TOK_IF: i32 = 267;
+const TOK_IN: i32 = 268;
+const TOK_LOCAL: i32 = 269;
+const TOK_DEFER: i32 = 270;
+const TOK_NIL: i32 = 271;
+const TOK_NOT: i32 = 272;
+const TOK_OR: i32 = 273;
+const TOK_REPEAT: i32 = 274;
+const TOK_RETURN: i32 = 275;
+const TOK_THEN: i32 = 276;
+const TOK_TRUE: i32 = 277;
+const TOK_UNTIL: i32 = 278;
+const TOK_WHILE: i32 = 279;
 const TOK_IDIV: i32 = 280;
 const TOK_CONCAT: i32 = 281;
 const TOK_DOTS: i32 = 282;
@@ -62,7 +62,7 @@ const TOK_NAME: i32 = 300;
 const TOK_STRING: i32 = 301;
 
 const FIRST_RESERVED: i32 = TOK_OFS + 1;
-const LAST_RESERVED: i32 = TOK_while - TOK_OFS;
+const LAST_RESERVED: i32 = TOK_WHILE - TOK_OFS;
 
 const CHAR_RET: i32 = '\r' as i32;
 const CHAR_NL: i32 = '\n' as i32;
@@ -150,7 +150,23 @@ fn lisxdigit(c: i32) -> bool {
 pub enum SemInfo {
     IntegerLit { i: lua_Integer },
     NumberLit { r: lua_Number },
-    StringLit { s: Vec<i32> },
+    StringLit { s: String },
+}
+
+impl fmt::Display for SemInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SemInfo::IntegerLit { i } => {
+                write!(f, "{}", i)
+            }
+            SemInfo::NumberLit { r } => {
+                write!(f, "{}", r)
+            }
+            SemInfo::StringLit { s } => {
+                write!(f, "{}", s)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -168,7 +184,7 @@ pub struct Lexer<'a> {
     t: Token,
     lookahead: Token,
     source: Source<'a>,
-    buff: Vec<i32>,
+    buff: Vec<u8>,
 }
 
 impl<'a> Lexer<'a> {
@@ -195,7 +211,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn save_and_next_ch(&mut self) {
-        self.buff.push(self.current);
+        self.buff.push(self.current as u8);
         self.next_ch();
     }
 
@@ -256,14 +272,14 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 CHAR_RET | CHAR_NL => {
-                    self.buff.push(CHAR_NL);
+                    self.buff.push(CHAR_NL as u8);
                     self.inc_line_number();
                     if !save_seminfo {
                         self.buff.clear(); /* avoid wasting space */
                     }
                 }
                 _ => {
-                    if !save_seminfo {
+                    if save_seminfo {
                         self.save_and_next_ch();
                     } else {
                         self.next_ch();
@@ -273,19 +289,19 @@ impl<'a> Lexer<'a> {
         }
         if save_seminfo {
             let sep = sep as usize;
-            let start = 2 * sep;
-            let end = self.buff.len() - 2 * (2 + sep);
+            let start = 2 + sep;
+            let end = self.buff.len() - start;
             let rang = start..end;
             let cl = self.buff[rang].to_vec();
             if looking_ahead {
                 self.lookahead = Token {
                     token: TOK_STRING,
-                    seminfo: Some(StringLit { s: cl }),
+                    seminfo: Some(StringLit { s: String::from_utf8(cl).expect("String expected") }),
                 }
             } else {
                 self.t = Token {
                     token: TOK_STRING,
-                    seminfo: Some(StringLit { s: cl }),
+                    seminfo: Some(StringLit { s: String::from_utf8(cl).expect("String expected") }),
                 }
             }
         }
@@ -417,7 +433,9 @@ multi line
         assert_eq!(CHAR_RPAREN, lexer.t.token);
         lexer.next_token();
         assert_eq!(TOK_STRING, lexer.t.token);
+        println!("Got string '{}'", lexer.t.seminfo.as_ref().unwrap());
         lexer.next_token();
         assert_eq!(TOK_EOS, lexer.t.token);
+        print!("Done");
     }
 }
