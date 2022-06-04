@@ -69,6 +69,15 @@ const CHAR_SPACE: i32 = ' ' as i32;
 const CHAR_FF: i32 = 12;
 const CHAR_HTAB: i32 = '\t' as i32;
 const CHAR_VTAB: i32 = 11;
+const CHAR_HYPEN: i32 = '-' as i32;
+const CHAR_LBRACKET: i32 = '[' as i32;
+const CHAR_RBRACKET: i32 = ']' as i32;
+const CHAR_LBRACE: i32 = '{' as i32;
+const CHAR_RBRACE: i32 = '}' as i32;
+const CHAR_LPAREN: i32 = '(' as i32;
+const CHAR_RPAREN: i32 = ')' as i32;
+const CHAR_EQUAL: i32 = '=' as i32;
+const CHAR_COMMA: i32 = ',' as i32;
 
 const luai_ctype_: [i32; 257] = [
     0x00, /* EOZ */
@@ -136,242 +145,29 @@ fn lisxdigit(c: i32) -> bool {
     testprop(c, MASK(XDIGITBIT)) != 0
 }
 
-/*
- * Lua strings can have embedded 0 bytes therefore we
- * need a string type that has a length associated with it.
- *
- * The compiler stores a single copy of each string so that strings
- * can be compared by equality.
- */
-pub struct StringObject<'a> {
-    reserved: i32, /* if is this a keyword then token id else -1 */
-    str: &'a [u8], /* The string data */
-}
-
-impl fmt::Debug for StringObject<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let str = string::String::from_utf8(self.str.to_vec());
-        write!(f, "'{:?}'", str)
-    }
-}
-
-impl fmt::Display for StringObject<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let str = string::String::from_utf8(self.str.to_vec());
-        write!(f, "'{:?}'", str)
-    }
-}
-
-impl PartialEq for StringObject<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        if self.str.len() != other.str.len() {
-            return false;
-        }
-        for i in 0..self.str.len() {
-            if self.str[i] != other.str[i] {
-                return false;
-            }
-        }
-        true
-    }
-}
-impl Eq for StringObject<'_> {}
-
-impl Hash for StringObject<'_> {
-    fn hash<H: Hasher>(&self, hasher: &mut H) {
-        self.str.hash(hasher)
-    }
-}
-
-const CHUNK_SIZE: usize = 1024;
-struct StringChunk {
-    chunk: [u8; CHUNK_SIZE],
-    pos: usize,
-}
-
-struct StringAllocator {
-    chunks: Vec<Box<StringChunk>>,
-}
-
-impl StringAllocator {
-    fn new() -> Self {
-        StringAllocator {
-            chunks: vec![Box::new(StringChunk {
-                chunk: [0; CHUNK_SIZE],
-                pos: 0,
-            })],
-        }
-    }
-
-    // fn alloc_string(&mut self, n: usize) -> Option<&mut [u8]> {
-    //     let mut cur : Option<&mut Box<StringChunk>> = None;
-    //     for i in 0..self.chunks.len() {
-    //         let c = &self.chunks[i];
-    //         if c.pos + n <= CHUNK_SIZE {
-    //             cur = Some(&mut self.chunks[i]);
-    //             break;
-    //         }
-    //     }
-    //     if cur.is_none() {
-    //         self.chunks.push(Box::new(StringChunk{ chunk: [0; CHUNK_SIZE], pos: 0 }));
-    //         cur = self.chunks.last_mut();
-    //     }
-    //     match cur {
-    //         None => None,
-    //         Some(stringchunk) => {
-    //             let pos = stringchunk.pos;
-    //             stringchunk.pos = stringchunk.pos + n;
-    //             Some(&mut stringchunk.chunk[pos .. stringchunk.pos])
-    //         }
-    //     }
-    // }
-
-    fn alloc_string<'a>(&'a mut self, n: usize) -> Option<&'a mut [u8]> {
-        if n > CHUNK_SIZE {
-            return None;
-        }
-        let mut j: usize = self.chunks.len();
-        for i in 0..self.chunks.len() {
-            let c = &self.chunks[i];
-            if c.pos + n <= CHUNK_SIZE {
-                j = i;
-            }
-        }
-        if j == self.chunks.len() {
-            self.chunks.push(Box::new(StringChunk {
-                chunk: [0; CHUNK_SIZE],
-                pos: 0,
-            }));
-        }
-        let cur = &mut self.chunks[j];
-        let pos = cur.pos;
-        cur.pos = cur.pos + n;
-        Some(&mut cur.chunk[pos..cur.pos])
-    }
-}
-
-struct StringObjectAllocator {
-    chunks: Vec<Box<StringChunk>>,
-}
-
-impl StringObjectAllocator {
-    fn new() -> Self {
-        StringObjectAllocator {
-            chunks: vec![Box::new(StringChunk {
-                chunk: [0; CHUNK_SIZE],
-                pos: 0,
-            })],
-        }
-    }
-
-    fn allocate<'a>(&'a mut self, data: &'a mut [u8]) -> Option<&'a StringObject> {
-        let mut n = mem::size_of::<StringObject>();
-        let alignment = mem::align_of::<StringObject>();
-        n = (n + alignment - 1) & !(alignment - 1);
-
-        let mut j: usize = self.chunks.len();
-        for i in 0..self.chunks.len() {
-            let c = &self.chunks[i];
-            if c.pos + n <= CHUNK_SIZE {
-                j = i;
-            }
-        }
-        if j == self.chunks.len() {
-            self.chunks.push(Box::new(StringChunk {
-                chunk: [0; CHUNK_SIZE],
-                pos: 0,
-            }));
-        }
-        let cur = &mut self.chunks[j];
-        let pos = cur.pos;
-        cur.pos = cur.pos + n;
-        let buf = &mut cur.chunk[pos..cur.pos];
-        let objp: *mut StringObject = buf.as_mut_ptr() as *mut StringObject;
-        unsafe {
-            ptr::write(
-                objp,
-                StringObject {
-                    reserved: -1,
-                    str: data,
-                },
-            );
-            Some(&*objp)
-        }
-    }
-}
-
-struct StringCache<'a> {
-    map: HashSet<Box<StringObject<'a>>>,
-    allocator: StringAllocator,
-}
-
-impl<'a> StringCache<'a> {
-    fn new() -> Self {
-        StringCache {
-            map: HashSet::new(),
-            allocator: StringAllocator::new(),
-        }
-    }
-
-    fn get(&'a mut self, buf: &'a std::vec::Vec<u8>) -> Option<&'a StringObject> {
-        let slice = &buf[0..buf.len()];
-        let str_obj = StringObject {
-            reserved: -1,
-            str: slice,
-        };
-        let tab = &mut self.map;
-        if !tab.contains(&str_obj) {
-            let s = self.allocator.alloc_string(slice.len());
-            match s {
-                Some(ss) => {
-                    for i in 0..ss.len() {
-                        ss[i] = slice[i];
-                    }
-                    let obj = Box::new(StringObject {
-                        reserved: -1,
-                        str: ss,
-                    });
-                    println!("allocated");
-                    tab.insert(obj);
-                }
-                None => {}
-            }
-        }
-        {
-            let existing = tab.get(&str_obj);
-            match existing {
-                Some(e) => Some(e),
-                None => None,
-            }
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum SemInfo<'a> {
+#[derive(Debug, Clone)]
+pub enum SemInfo {
     Integer { i: lua_Integer },
     Number { r: lua_Number },
-    String { str: &'a StringObject<'a> },
-    None {},
+    String { s: Vec<u8> },
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct Token<'a> {
+#[derive(Debug, Clone)]
+pub struct Token {
     token: i32, /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
                 are characters */
-    seminfo: SemInfo<'a>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
-                          token is > TOK_EOS */
+    seminfo: Option<SemInfo>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
+                              token is > TOK_EOS */
 }
 
 pub struct Lexer<'a> {
     current: i32,
     linenumber: i32,
     lastline: i32,
-    t: Token<'a>,
-    lookahead: Token<'a>,
+    t: Token,
+    lookahead: Token,
     source: Source<'a>,
-    buff: Vec<u8>,
-    strCache: StringCache<'a>,
+    buff: Vec<i32>,
 }
 
 impl<'a> Lexer<'a> {
@@ -383,28 +179,33 @@ impl<'a> Lexer<'a> {
             source: source,
             lookahead: Token {
                 token: TOK_EOS,
-                seminfo: SemInfo::None {},
+                seminfo: None,
             },
             t: Token {
                 token: 0,
-                seminfo: SemInfo::None {},
+                seminfo: None,
             },
             buff: vec![],
-            strCache: StringCache::new(),
         }
     }
+
     fn next_ch(&mut self) {
         self.current = self.source.getc();
     }
 
-    fn currIsNewline(&self) -> bool {
+    fn save_and_next_ch(&mut self) {
+        self.buff.push(self.current);
+        self.next_ch();
+    }
+
+    fn curr_is_new_line(&self) -> bool {
         self.current == CHAR_NL || self.current == CHAR_RET
     }
 
-    fn inclinenumber(&mut self) {
+    fn inc_line_number(&mut self) {
         let old = self.current;
         self.next_ch(); /* skip '\n' or '\r' */
-        if self.currIsNewline() && self.current != old {
+        if self.curr_is_new_line() && self.current != old {
             self.next_ch(); /* skip '\n\r' or '\r\n' */
         }
         self.linenumber += 1;
@@ -412,8 +213,68 @@ impl<'a> Lexer<'a> {
         // lexerror(ls, "chunk has too many lines", 0);
     }
 
-    fn llex(&mut self, lookingahead: bool) -> i32 {
-        let seminfo = if lookingahead {
+    /*
+     ** skip a sequence '[=*[' or ']=*]'; if sequence is well formed, return
+     ** its number of '='s; otherwise, return a negative number (-1 iff there
+     ** are no '='s after initial bracket)
+     */
+    fn skip_sep(&mut self) -> i32 {
+        let mut count = 0;
+        let s = self.current;
+        //assert(s == '[' || s == ']');
+        self.save_and_next_ch();
+        while self.current == CHAR_EQUAL {
+            self.save_and_next_ch();
+            count += 1;
+        }
+        if self.current == s {
+            count
+        } else {
+            (-count) - 1
+        }
+    }
+
+    fn read_long_string(&mut self, seminfo: Option<&mut SemInfo>, sep: i32) {
+        let line = self.linenumber;
+        self.save_and_next_ch(); /* skip 2nd '[' */
+        if self.curr_is_new_line() {
+            /* string starts with a newline? */
+            self.inc_line_number(); /* skip it */
+        }
+        loop {
+            match self.current {
+                EOZ => {
+                    /* error */
+                    // TODO
+                    break;
+                }
+                CHAR_RBRACKET => {
+                    if (self.skip_sep() == sep) {
+                        self.save_and_next_ch(); /* skip 2nd ']' */
+                        break;
+                    }
+                }
+                CHAR_RET | CHAR_NL => {
+                    self.buff.push(CHAR_NL);
+                    self.inc_line_number();
+                    if seminfo.is_none() {
+                        self.buff.clear(); /* avoid wasting space */
+                    }
+                }
+                _ => {
+                    if !seminfo.is_none() {
+                        self.save_and_next_ch();
+                    } else {
+                        self.next_ch();
+                    }
+                }
+            }
+        }
+    }
+
+    // Advance the lexer to next token
+    fn llex(&mut self, looking_ahead: bool) -> i32 {
+        let seminfo = if looking_ahead {
             &mut self.lookahead.seminfo
         } else {
             &mut self.t.seminfo
@@ -422,7 +283,7 @@ impl<'a> Lexer<'a> {
         loop {
             match self.current {
                 CHAR_RET | CHAR_NL => {
-                    self.inclinenumber();
+                    self.inc_line_number();
                 }
 
                 CHAR_SPACE | CHAR_FF | CHAR_HTAB | CHAR_VTAB => {
@@ -430,8 +291,29 @@ impl<'a> Lexer<'a> {
                     self.next_ch();
                 }
 
-                EOZ => {
-                    break;
+                EOZ => break TOK_EOS,
+
+                CHAR_HYPEN => {
+                    /* '-' or '--' (comment) */
+                    self.next_ch();
+                    if self.current != CHAR_HYPEN {
+                        break CHAR_HYPEN;
+                    }
+                    /* else is a comment */
+                    self.next_ch();
+                    if self.current == CHAR_LBRACKET {
+                        let sep = self.skip_sep();
+                        self.buff.clear(); /* 'skip_sep' may dirty the buffer */
+                        if (sep >= 0) {
+                            self.read_long_string(None, sep); /* skip long comment */
+                            self.buff.clear(); /* previous call may dirty the buff. */
+                            continue;
+                        }
+                    }
+                    /* else short comment */
+                    while !self.curr_is_new_line() && self.current != EOZ {
+                        self.next_ch(); /* skip until end of line (or end of file) */
+                    }
                 }
 
                 _ => {
@@ -439,19 +321,20 @@ impl<'a> Lexer<'a> {
                     } else {
                         let c = self.current;
                         self.next_ch();
-                        return c;
+                        break c;
                     }
                 }
             }
         }
-        0
     }
 
-    fn next(&mut self) {
+    // Lex next token
+    // token will be stored in self.t
+    fn next_token(&mut self) {
         self.lastline = self.linenumber;
-        if self.lookahead.token == TOK_EOS {
+        if self.lookahead.token != TOK_EOS {
             /* is there a look-ahead token? */
-            self.t = self.lookahead; /* use this one */
+            self.t = self.lookahead.clone(); /* use this one */
             self.lookahead.token = TOK_EOS; /* and discharge it */
         } else {
             self.t.token = self.llex(false);
@@ -461,44 +344,38 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Lexer;
-    use crate::Source;
-    use crate::StringAllocator;
-    use crate::StringCache;
-
-    #[test]
-    fn test_string_alloc() {
-        let mut alloc = StringAllocator::new();
-        let slice1 = alloc.alloc_string(10);
-        assert_eq!(10, slice1.unwrap().len());
-        let slice2 = alloc.alloc_string(10);
-        assert_eq!(10, slice2.unwrap().len());
-        assert_eq!(1, alloc.chunks.len());
-        assert_eq!(20, alloc.chunks[0].pos);
-        let slice3 = alloc.alloc_string(1005);
-        assert_eq!(1005, slice3.unwrap().len());
-        assert_eq!(2, alloc.chunks.len());
-        assert_eq!(1005, alloc.chunks[1].pos);
-        let slice4 = alloc.alloc_string(20);
-        assert_eq!(20, slice4.unwrap().len());
-        assert_eq!(2, alloc.chunks.len());
-        assert_eq!(40, alloc.chunks[0].pos);
-        assert_eq!(1005, alloc.chunks[1].pos);
-    }
-
-    #[test]
-    fn test_string_cache() {
-        let mut cache = StringCache::new();
-        let buf1 = String::from("hello").into_bytes();
-        let result = cache.get(&buf1);
-        assert_eq!(buf1, result.unwrap().str);
-        // let result2 = cache.get(&buf1);
-        // assert_eq!(result.unwrap(), result2.unwrap());
-    }
-
+    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE};
+    use crate::{Source, CHAR_COMMA, CHAR_LPAREN, CHAR_RPAREN, TOK_EOS};
     #[test]
     fn test_lexer() {
-        let mut source = Source::new("return 1");
+        let source_string = "
+-- a comment
+- { } ,
+--[[ a
+long string
+]]
+--[==[ another
+multi line
+ string
+]==]
+ ( )
+        ";
+
+        let mut source = Source::new(source_string);
         let mut lexer = Lexer::new(source);
+        lexer.next_token();
+        assert_eq!(CHAR_HYPEN, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_LBRACE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_RBRACE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_COMMA, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_LPAREN, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_RPAREN, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_EOS, lexer.t.token);
     }
 }
