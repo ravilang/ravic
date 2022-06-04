@@ -1,11 +1,11 @@
 pub mod config;
 pub mod source;
 
-use std::fmt;
 use crate::config::*;
 use crate::source::Source;
 use crate::source::EOZ;
 use crate::SemInfo::StringLit;
+use std::fmt;
 
 const TOK_OFS: i32 = 256;
 
@@ -73,6 +73,11 @@ const CHAR_LPAREN: i32 = '(' as i32;
 const CHAR_RPAREN: i32 = ')' as i32;
 const CHAR_EQUAL: i32 = '=' as i32;
 const CHAR_COMMA: i32 = ',' as i32;
+const CHAR_LT: i32 = '<' as i32;
+const CHAR_GT: i32 = '>' as i32;
+const CHAR_FSLASH: i32 = '/' as i32;
+const CHAR_TILDE: i32 = '~' as i32;
+const CHAR_COLON: i32 = ':' as i32;
 
 const luai_ctype_: [i32; 257] = [
     0x00, /* EOZ */
@@ -285,8 +290,8 @@ impl<'a> Lexer<'a> {
             let sep = sep as usize;
             let start = 2 + sep;
             let end = self.buff.len() - start;
-            let rang = start..end;
-            let cl = self.buff[rang].to_vec();
+            let range = start..end;
+            let cl = self.buff[range].to_vec();
             if looking_ahead {
                 self.lookahead = Token {
                     token: TOK_STRING,
@@ -298,6 +303,15 @@ impl<'a> Lexer<'a> {
                     seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
                 }
             }
+        }
+    }
+
+    fn check_next1(&mut self, c: i32) -> bool {
+        if self.current == c {
+            self.next_ch();
+            true
+        } else {
+            false
         }
     }
 
@@ -355,6 +369,64 @@ impl<'a> Lexer<'a> {
                     break CHAR_LBRACKET;
                 }
 
+                CHAR_EQUAL => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_EQUAL) {
+                        break TOK_EQ;
+                    } else {
+                        break CHAR_EQUAL;
+                    }
+                }
+
+                CHAR_LT => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_EQUAL) {
+                        break TOK_LE;
+                    } else if self.check_next1(CHAR_LT) {
+                        break TOK_SHL;
+                    } else {
+                        break CHAR_LT;
+                    }
+                }
+
+                CHAR_GT => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_EQUAL) {
+                        break TOK_GE;
+                    } else if self.check_next1(CHAR_GT) {
+                        break TOK_SHR;
+                    } else {
+                        break CHAR_GT;
+                    }
+                }
+
+                CHAR_FSLASH => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_FSLASH) {
+                        break TOK_IDIV;
+                    } else {
+                        break CHAR_FSLASH;
+                    }
+                }
+
+                CHAR_TILDE => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_EQUAL) {
+                        break TOK_NE;
+                    } else {
+                        break CHAR_TILDE;
+                    }
+                }
+
+                CHAR_COLON => {
+                    self.next_ch();
+                    if self.check_next1(CHAR_COLON) {
+                        break TOK_DBCOLON;
+                    } else {
+                        break CHAR_COLON;
+                    }
+                }
+
                 _ => {
                     if lislalnum(self.current) {
                     } else {
@@ -383,7 +455,11 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE, TOK_STRING, StringLit};
+    use crate::{
+        Lexer, StringLit, CHAR_COLON, CHAR_EQUAL, CHAR_FSLASH, CHAR_GT, CHAR_HYPEN, CHAR_LBRACE,
+        CHAR_LT, CHAR_RBRACE, CHAR_TILDE, TOK_DBCOLON, TOK_EQ, TOK_GE, TOK_IDIV, TOK_LE, TOK_NE,
+        TOK_SHL, TOK_SHR, TOK_STRING,
+    };
     use crate::{Source, CHAR_COMMA, CHAR_LPAREN, CHAR_RPAREN, TOK_EOS};
     #[test]
     fn test_lexer() {
@@ -399,6 +475,7 @@ multi line
 ]==]
  ( )
   [[ a string ]]
+= == < <= << > >= >> // / ~ ~= :: :
         ";
 
         let mut source = Source::new(source_string);
@@ -417,7 +494,38 @@ multi line
         assert_eq!(CHAR_RPAREN, lexer.t.token);
         lexer.next_token();
         assert_eq!(TOK_STRING, lexer.t.token);
-        assert_eq!(StringLit(" a string ".to_string()), lexer.t.seminfo.as_ref().unwrap().clone());
+        assert_eq!(
+            StringLit(" a string ".to_string()),
+            lexer.t.seminfo.as_ref().unwrap().clone()
+        );
+        lexer.next_token();
+        assert_eq!(CHAR_EQUAL, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_EQ, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_LT, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_LE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_SHL, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_GT, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_GE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_SHR, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_IDIV, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_FSLASH, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_TILDE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_NE, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(TOK_DBCOLON, lexer.t.token);
+        lexer.next_token();
+        assert_eq!(CHAR_COLON, lexer.t.token);
         lexer.next_token();
         assert_eq!(TOK_EOS, lexer.t.token);
     }
