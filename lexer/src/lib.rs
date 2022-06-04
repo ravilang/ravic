@@ -1,17 +1,11 @@
 pub mod config;
 pub mod source;
 
+use std::fmt;
 use crate::config::*;
 use crate::source::Source;
 use crate::source::EOZ;
 use crate::SemInfo::StringLit;
-use core::hash::Hash;
-use core::hash::Hasher;
-use core::ptr;
-use std::collections::HashSet;
-use std::fmt;
-use std::mem;
-use std::string;
 
 const TOK_OFS: i32 = 256;
 
@@ -146,23 +140,23 @@ fn lisxdigit(c: i32) -> bool {
     testprop(c, MASK(XDIGITBIT)) != 0
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SemInfo {
-    IntegerLit { i: lua_Integer },
-    NumberLit { r: lua_Number },
-    StringLit { s: String },
+    IntegerLit(lua_Integer),
+    NumberLit(lua_Number),
+    StringLit(String),
 }
 
 impl fmt::Display for SemInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SemInfo::IntegerLit { i } => {
+            SemInfo::IntegerLit(i) => {
                 write!(f, "{}", i)
             }
-            SemInfo::NumberLit { r } => {
+            SemInfo::NumberLit(r) => {
                 write!(f, "{}", r)
             }
-            SemInfo::StringLit { s } => {
+            SemInfo::StringLit(s) => {
                 write!(f, "{}", s)
             }
         }
@@ -266,7 +260,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 CHAR_RBRACKET => {
-                    if (self.skip_sep() == sep) {
+                    if self.skip_sep() == sep {
                         self.save_and_next_ch(); /* skip 2nd ']' */
                         break;
                     }
@@ -296,12 +290,12 @@ impl<'a> Lexer<'a> {
             if looking_ahead {
                 self.lookahead = Token {
                     token: TOK_STRING,
-                    seminfo: Some(StringLit { s: String::from_utf8(cl).expect("String expected") }),
+                    seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
                 }
             } else {
                 self.t = Token {
                     token: TOK_STRING,
-                    seminfo: Some(StringLit { s: String::from_utf8(cl).expect("String expected") }),
+                    seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
                 }
             }
         }
@@ -309,11 +303,6 @@ impl<'a> Lexer<'a> {
 
     // Advance the lexer to next token
     fn llex(&mut self, looking_ahead: bool) -> i32 {
-        let seminfo = if looking_ahead {
-            self.lookahead.seminfo.as_mut()
-        } else {
-            self.t.seminfo.as_mut()
-        };
         self.buff.clear();
         loop {
             match self.current {
@@ -339,7 +328,7 @@ impl<'a> Lexer<'a> {
                     if self.current == CHAR_LBRACKET {
                         let sep = self.skip_sep();
                         self.buff.clear(); /* 'skip_sep' may dirty the buffer */
-                        if (sep >= 0) {
+                        if sep >= 0 {
                             self.read_long_string(false, looking_ahead, sep); /* skip long comment */
                             self.buff.clear(); /* previous call may dirty the buff. */
                             continue;
@@ -349,11 +338,6 @@ impl<'a> Lexer<'a> {
                     while !self.curr_is_new_line() && self.current != EOZ {
                         self.next_ch(); /* skip until end of line (or end of file) */
                     }
-                }
-
-                CHAR_SPACE | CHAR_FF | CHAR_HTAB | CHAR_VTAB => {
-                    /* spaces */
-                    self.next_ch();
                 }
 
                 CHAR_LBRACKET => {
@@ -399,7 +383,7 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE, TOK_STRING};
+    use crate::{Lexer, CHAR_HYPEN, CHAR_LBRACE, CHAR_RBRACE, TOK_STRING, StringLit};
     use crate::{Source, CHAR_COMMA, CHAR_LPAREN, CHAR_RPAREN, TOK_EOS};
     #[test]
     fn test_lexer() {
@@ -433,9 +417,8 @@ multi line
         assert_eq!(CHAR_RPAREN, lexer.t.token);
         lexer.next_token();
         assert_eq!(TOK_STRING, lexer.t.token);
-        println!("Got string '{}'", lexer.t.seminfo.as_ref().unwrap());
+        assert_eq!(StringLit(" a string ".to_string()), lexer.t.seminfo.as_ref().unwrap().clone());
         lexer.next_token();
         assert_eq!(TOK_EOS, lexer.t.token);
-        print!("Done");
     }
 }
