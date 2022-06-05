@@ -132,15 +132,19 @@ fn testprop(c: i32, p: i32) -> i32 {
 fn lislalpha(c: i32) -> bool {
     testprop(c, MASK(ALPHABIT)) != 0
 }
+
 fn lislalnum(c: i32) -> bool {
     testprop(c, MASK(ALPHABIT) | MASK(DIGITBIT)) != 0
 }
+
 fn lisdigit(c: i32) -> bool {
     testprop(c, MASK(DIGITBIT)) != 0
 }
+
 fn lisspace(c: i32) -> bool {
     testprop(c, MASK(SPACEBIT)) != 0
 }
+
 fn lisxdigit(c: i32) -> bool {
     testprop(c, MASK(XDIGITBIT)) != 0
 }
@@ -170,18 +174,24 @@ impl fmt::Display for SemInfo {
 
 #[derive(Debug, Clone)]
 pub struct Token {
-    token: i32, /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
-                are characters */
-    seminfo: Option<SemInfo>, /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
-                              token is > TOK_EOS */
+    token: i32,
+    /* Token value or character value; token values start from FIRST_RESERVED which is 257, values < 256
+                   are characters */
+    seminfo: Option<SemInfo>,
+    /* Literal associated with the token, only valid when token is a literal or an identifier, i.e.
+                                 token is > TOK_EOS */
+}
+
+fn tok(t: i32) -> Option<Token> {
+    Some(Token { token: t, seminfo: None })
 }
 
 pub struct Lexer {
     current: i32,
     linenumber: i32,
     lastline: i32,
-    t: Token,
-    lookahead: Token,
+    t: Option<Token>,
+    lookahead: Option<Token>,
     source: Source,
     buff: Vec<u8>,
 }
@@ -193,14 +203,8 @@ impl Lexer {
             linenumber: 0,
             lastline: 0,
             source: source,
-            lookahead: Token {
-                token: TOK_EOS,
-                seminfo: None,
-            },
-            t: Token {
-                token: 0,
-                seminfo: None,
-            },
+            lookahead: None,
+            t: None,
             buff: vec![],
         }
     }
@@ -250,8 +254,8 @@ impl Lexer {
         }
     }
 
-    fn read_long_string(&mut self, save_seminfo: bool, looking_ahead: bool, sep: i32) {
-        let line = self.linenumber;
+    fn read_long_string(&mut self, save_seminfo: bool, sep: i32) -> Option<Token> {
+        //let line = self.linenumber;
         self.save_and_next_ch(); /* skip 2nd '[' */
         if self.curr_is_new_line() {
             /* string starts with a newline? */
@@ -292,17 +296,12 @@ impl Lexer {
             let end = self.buff.len() - start;
             let range = start..end;
             let cl = self.buff[range].to_vec();
-            if looking_ahead {
-                self.lookahead = Token {
-                    token: TOK_STRING,
-                    seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
-                }
-            } else {
-                self.t = Token {
-                    token: TOK_STRING,
-                    seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
-                }
-            }
+            Some(Token {
+                token: TOK_STRING,
+                seminfo: Some(StringLit(String::from_utf8(cl).expect("String expected"))),
+            })
+        } else {
+            None
         }
     }
 
@@ -316,7 +315,7 @@ impl Lexer {
     }
 
     // Advance the lexer to next token
-    fn llex(&mut self, looking_ahead: bool) -> i32 {
+    fn llex(&mut self) -> Option<Token> {
         self.buff.clear();
         loop {
             match self.current {
@@ -329,13 +328,13 @@ impl Lexer {
                     self.next_ch();
                 }
 
-                EOZ => break TOK_EOS,
+                EOZ => break tok(TOK_EOS),
 
                 CHAR_HYPEN => {
                     /* '-' or '--' (comment) */
                     self.next_ch();
                     if self.current != CHAR_HYPEN {
-                        break CHAR_HYPEN;
+                        break tok(CHAR_HYPEN);
                     }
                     /* else is a comment */
                     self.next_ch();
@@ -343,7 +342,7 @@ impl Lexer {
                         let sep = self.skip_sep();
                         self.buff.clear(); /* 'skip_sep' may dirty the buffer */
                         if sep >= 0 {
-                            self.read_long_string(false, looking_ahead, sep); /* skip long comment */
+                            self.read_long_string(false, sep); /* skip long comment */
                             self.buff.clear(); /* previous call may dirty the buff. */
                             continue;
                         }
@@ -358,82 +357,80 @@ impl Lexer {
                     /* long string or simply '[' */
                     let sep = self.skip_sep();
                     if sep >= 0 {
-                        self.read_long_string(true, looking_ahead, sep);
-                        break TOK_STRING;
+                        break self.read_long_string(true, sep);
                     } else if sep != -1
                     /* '[=...' missing second bracket */
                     {
                         //lexerror(ls, "invalid long string delimiter", TOK_STRING);
-                        break TOK_EOS;
+                        break tok(TOK_EOS);
                     }
-                    break CHAR_LBRACKET;
+                    break tok(CHAR_LBRACKET);
                 }
 
                 CHAR_EQUAL => {
                     self.next_ch();
                     if self.check_next1(CHAR_EQUAL) {
-                        break TOK_EQ;
+                        break tok(TOK_EQ);
                     } else {
-                        break CHAR_EQUAL;
+                        break tok(CHAR_EQUAL);
                     }
                 }
 
                 CHAR_LT => {
                     self.next_ch();
                     if self.check_next1(CHAR_EQUAL) {
-                        break TOK_LE;
+                        break tok(TOK_LE);
                     } else if self.check_next1(CHAR_LT) {
-                        break TOK_SHL;
+                        break tok(TOK_SHL);
                     } else {
-                        break CHAR_LT;
+                        break tok(CHAR_LT);
                     }
                 }
 
                 CHAR_GT => {
                     self.next_ch();
                     if self.check_next1(CHAR_EQUAL) {
-                        break TOK_GE;
+                        break tok(TOK_GE);
                     } else if self.check_next1(CHAR_GT) {
-                        break TOK_SHR;
+                        break tok(TOK_SHR);
                     } else {
-                        break CHAR_GT;
+                        break tok(CHAR_GT);
                     }
                 }
 
                 CHAR_FSLASH => {
                     self.next_ch();
                     if self.check_next1(CHAR_FSLASH) {
-                        break TOK_IDIV;
+                        break tok(TOK_IDIV);
                     } else {
-                        break CHAR_FSLASH;
+                        break tok(CHAR_FSLASH);
                     }
                 }
 
                 CHAR_TILDE => {
                     self.next_ch();
                     if self.check_next1(CHAR_EQUAL) {
-                        break TOK_NE;
+                        break tok(TOK_NE);
                     } else {
-                        break CHAR_TILDE;
+                        break tok(CHAR_TILDE);
                     }
                 }
 
                 CHAR_COLON => {
                     self.next_ch();
                     if self.check_next1(CHAR_COLON) {
-                        break TOK_DBCOLON;
+                        break tok(TOK_DBCOLON);
                     } else {
-                        break CHAR_COLON;
+                        break tok(CHAR_COLON);
                     }
                 }
 
                 _ => {
                     let b = self.current as u8;
-                    if lislalnum(self.current) {
-                    } else {
+                    if lislalnum(self.current) {} else {
                         let c = self.current;
                         self.next_ch();
-                        break c;
+                        break tok(c);
                     }
                 }
             }
@@ -444,12 +441,11 @@ impl Lexer {
     // token will be stored in self.t
     fn next_token(&mut self) {
         self.lastline = self.linenumber;
-        if self.lookahead.token != TOK_EOS {
+        if self.lookahead.is_some() {
             /* is there a look-ahead token? */
-            self.t = self.lookahead.clone(); /* use this one */
-            self.lookahead.token = TOK_EOS; /* and discharge it */
+            self.t = self.lookahead.take(); /* use this one */
         } else {
-            self.t.token = self.llex(false);
+            self.t = self.llex();
         }
     }
 }
@@ -462,6 +458,7 @@ mod tests {
         TOK_SHL, TOK_SHR, TOK_STRING,
     };
     use crate::{Source, CHAR_COMMA, CHAR_LPAREN, CHAR_RPAREN, TOK_EOS};
+
     #[test]
     fn test_lexer() {
         let source_string = "
@@ -482,52 +479,52 @@ multi line
         let mut source = Source::new(source_string);
         let mut lexer = Lexer::new(source);
         lexer.next_token();
-        assert_eq!(CHAR_HYPEN, lexer.t.token);
+        assert_eq!(CHAR_HYPEN, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_LBRACE, lexer.t.token);
+        assert_eq!(CHAR_LBRACE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_RBRACE, lexer.t.token);
+        assert_eq!(CHAR_RBRACE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_COMMA, lexer.t.token);
+        assert_eq!(CHAR_COMMA, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_LPAREN, lexer.t.token);
+        assert_eq!(CHAR_LPAREN, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_RPAREN, lexer.t.token);
+        assert_eq!(CHAR_RPAREN, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_STRING, lexer.t.token);
+        assert_eq!(TOK_STRING, lexer.t.as_ref().unwrap().token);
         assert_eq!(
             StringLit(" a string ".to_string()),
-            lexer.t.seminfo.as_ref().unwrap().clone()
+            lexer.t.as_ref().unwrap().seminfo.as_ref().unwrap().clone()
         );
         lexer.next_token();
-        assert_eq!(CHAR_EQUAL, lexer.t.token);
+        assert_eq!(CHAR_EQUAL, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_EQ, lexer.t.token);
+        assert_eq!(TOK_EQ, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_LT, lexer.t.token);
+        assert_eq!(CHAR_LT, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_LE, lexer.t.token);
+        assert_eq!(TOK_LE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_SHL, lexer.t.token);
+        assert_eq!(TOK_SHL, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_GT, lexer.t.token);
+        assert_eq!(CHAR_GT, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_GE, lexer.t.token);
+        assert_eq!(TOK_GE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_SHR, lexer.t.token);
+        assert_eq!(TOK_SHR, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_IDIV, lexer.t.token);
+        assert_eq!(TOK_IDIV, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_FSLASH, lexer.t.token);
+        assert_eq!(CHAR_FSLASH, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_TILDE, lexer.t.token);
+        assert_eq!(CHAR_TILDE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_NE, lexer.t.token);
+        assert_eq!(TOK_NE, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_DBCOLON, lexer.t.token);
+        assert_eq!(TOK_DBCOLON, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(CHAR_COLON, lexer.t.token);
+        assert_eq!(CHAR_COLON, lexer.t.as_ref().unwrap().token);
         lexer.next_token();
-        assert_eq!(TOK_EOS, lexer.t.token);
+        assert_eq!(TOK_EOS, lexer.t.as_ref().unwrap().token);
     }
 }
