@@ -176,18 +176,18 @@ pub struct Token {
                               token is > TOK_EOS */
 }
 
-pub struct Lexer<'a> {
+pub struct Lexer {
     current: i32,
     linenumber: i32,
     lastline: i32,
     t: Token,
     lookahead: Token,
-    source: Source<'a>,
+    source: Source,
     buff: Vec<u8>,
 }
 
-impl<'a> Lexer<'a> {
-    fn new(mut source: Source<'a>) -> Self {
+impl Lexer {
+    fn new(mut source: Source) -> Self {
         Lexer {
             current: source.getc(),
             linenumber: 0,
@@ -428,6 +428,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 _ => {
+                    let b = self.current as u8;
                     if lislalnum(self.current) {
                     } else {
                         let c = self.current;
